@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // Elementos del DOM
     const grammarTextarea = document.getElementById('grammar');
     const inputTextarea = document.getElementById('input');
     const outputDiv = document.getElementById('output');
@@ -8,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const example2Btn = document.getElementById('example2-btn');
     const clearBtn = document.getElementById('clear-btn');
 
-    // Ejemplo 1: Gramática simple de expresiones aritméticas
+    // Ejemplo 1 default: Gramática simple de expresiones aritméticas
     const example1Grammar = `P → SL
 SL → S SL'
 SL' → ; S SL'
@@ -26,7 +25,7 @@ F → id
 F → num
 F → ( E )`;
 
-    // Ejemplo 2: Gramática para funciones
+    // Ejemplo 2 default: Gramática para funciones
     const example2Grammar = `F → fun id ( P ) { B }
 P → id P'
 P → ε 
@@ -63,10 +62,9 @@ E → id`;
                 return;
             }
             
-            // Realizar análisis
+            //  análisis sintáctico con traza
             const trace = parseWithTrace([...tokens], grammar);
             
-            // Mostrar resultados
             displayResults(grammar, trace);
             
         } catch (error) {
@@ -134,37 +132,111 @@ E → id`;
         return html;
     }
 
-    // Función para generar tabla LL(1)
     function generateLL1Table(grammar) {
-        const table = buildLL1Table(grammar);
+        const first = computeFirst(grammar);
+        const follow = computeFollow(grammar, first);
+        const table = new Map();
         const terminals = Array.from(grammar.terminals).sort();
         
+        for (const nt of grammar.nonTerminals) {
+            table.set(nt, new Map());
+            for (const term of terminals) {
+                table.get(nt).set(term, '');
+            }
+        }
+    
+        for (const prodPair of grammar.orderedProductions) {
+            const nt = prodPair.nonTerminal;
+            const prods = prodPair.productions;
+    
+            for (const prod of prods) {
+                let firstSet = new Set();
+                let epsilonFound = false;
+    
+                if (prod[0] === "ε" || prod[0] === "epsilon") {
+                    firstSet.add("ε");
+                } else {
+                    for (const symbol of prod) {
+                        const symbolFirst = first.get(symbol);
+                        for (const item of symbolFirst) {
+                            if (item !== "ε") {
+                                firstSet.add(item);
+                            }
+                        }
+    
+                        if (!symbolFirst.has("ε")) {
+                            epsilonFound = false;
+                            break;
+                        }
+                    }
+                }
+    
+                for (const term of firstSet) {
+                    if (term !== "ε") {
+                        if (!table.get(nt).get(term)) { 
+                            table.get(nt).set(term, `${nt} → ${prod.join(' ')}`);
+                        }
+                    }
+                }
+    
+                if (firstSet.has("ε")) {
+                    for (const followTerm of follow.get(nt)) {
+                        if (!table.get(nt).get(followTerm)) {
+                            table.get(nt).set(followTerm, `${nt} → ${prod.join(' ')}`);
+                        }
+                    }
+                }
+            }
+        }
+    
+        for (const nt of grammar.nonTerminals) {
+            for (const term of terminals) {
+                const action = table.get(nt).get(term);
+                if (action === '') {
+                    if (follow.get(nt).has(term)) {
+                        table.get(nt).set(term, 'extract');
+                    } else {
+                        table.get(nt).set(term, 'explore');
+                    }
+                }
+            }
+        }
+    
+        for (const nt of grammar.nonTerminals) {
+            const action = table.get(nt).get('$');
+            if (!action) {
+                table.get(nt).set('$', 'explore');
+            }
+        }
+    
         let html = '<div class="section"><h3>Tabla LL(1)</h3>';
         html += '<div class="table-container"><table class="ll1-table"><thead><tr><th>No Terminal</th>';
-        
-        // Encabezados de terminales
         terminals.forEach(term => {
             html += `<th>${term}</th>`;
         });
         html += '</tr></thead><tbody>';
-        
-        // Filas para cada no terminal
+    
         for (const nt of grammar.nonTerminals) {
             html += `<tr><td>${nt}</td>`;
-            
-            // Celdas para cada terminal
             terminals.forEach(term => {
-                const production = table.get(nt)?.get(term) || '';
-                const productionText = production.split('→')[1]?.trim() || production.split('->')[1]?.trim() || '';
-                html += `<td>${productionText || '-'}</td>`;
+                const production = table.get(nt).get(term);
+                let cellClass = '';
+                if (production === 'explore') {
+                    cellClass = 'class="explore"';
+                } else if (production === 'extract') {
+                    cellClass = 'class="extract"';
+                }
+                else {
+                    cellClass = 'class="rule"';
+                }
+                html += `<td ${cellClass}>${production || '-'}</td>`;
             });
-            
             html += '</tr>';
         }
-        
+    
         html += '</tbody></table></div></div>';
         return html;
-    }
+    }    
 
     // Función para formatear tabla de derivación
     function formatDerivationTable(trace) {
